@@ -63,18 +63,21 @@ router.post("/", async (req, res) => {
   if (error)
     return res.status(400).send({ ErrorMessage: error.details[0].message });
   let contact = {
-    phone: req?.body?.phone || null,
+    phoneNumber: req?.body?.phoneNumber || null,
     email: req?.body?.email || null,
     linkP: "primary",
     linkedId: null,
   };
 
-  if (!contact.phone && !contact.email)
+  if (!contact.phoneNumber && !contact.email)
     return res
       .status(400)
-      .send({ ErrorMessage: "Either 'email' or 'phone' is Required." });
+      .send({ ErrorMessage: "Either 'email' or 'phoneNumber' is Required." });
 
-  const duplicates = await checkForDuplicates(contact.phone, contact.email);
+  const duplicates = await checkForDuplicates(
+    contact.phoneNumber,
+    contact.email
+  );
 
   console.log("Duplicate List:", duplicates);
 
@@ -85,23 +88,24 @@ router.post("/", async (req, res) => {
     for (row in duplicates) {
       if (
         (duplicates[row].email === contact.email &&
-          duplicates[row].phoneNumber == contact.phone) ||
-        (!contact.email && duplicates[row].phoneNumber == contact.phone) ||
-        (duplicates[row].email === contact.email && !contact.phone)
+          duplicates[row].phoneNumber == contact.phoneNumber) ||
+        (!contact.email &&
+          duplicates[row].phoneNumber == contact.phoneNumber) ||
+        (duplicates[row].email === contact.email && !contact.phoneNumber)
       ) {
         createContactWithThisRequestQuestionMark = false;
       }
 
       if (
         (!duplicates[row].phoneNumber &&
-          contact.phone &&
+          contact.phoneNumber &&
           duplicates[row].email === contact.email) ||
         (!duplicates[row].email &&
           contact.email &&
-          duplicates[row].phoneNumber == contact.phone)
+          duplicates[row].phoneNumber == contact.phoneNumber)
       ) {
         updateContacts.push({
-          phone: contact.phone,
+          phoneNumber: contact.phoneNumber,
           email: contact.email,
           id: duplicates[row].id,
         });
@@ -211,7 +215,7 @@ router.post("/", async (req, res) => {
   //create
   if (
     !allEmails.includes(contact.email) &&
-    !allPhones.includes(contact.phone) &&
+    !allPhones.includes(contact.phoneNumber) &&
     createContactWithThisRequestQuestionMark
   ) {
     console.log("Creating New Row", contact);
@@ -252,7 +256,7 @@ router.post("/", async (req, res) => {
 
 function ValidationCheck(reqBody) {
   const schema = Joi.object({
-    phone: Joi.string()
+    phoneNumber: Joi.string()
       .allow("")
       .allow(null)
       .min(6)

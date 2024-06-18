@@ -57,7 +57,7 @@ async function getSecondaryCustomers(id) {
 async function createCustomer(data) {
   const [rows] = await pool.query(
     "insert into customer (phoneNumber,email,linkPrecedence,linkedId) values (?,?,?,?)",
-    [data.phone, data.email, data.linkP, data.linkedId]
+    [data.phoneNumber, data.email, data.linkP, data.linkedId]
   );
   return await getCustomer(rows.insertId);
 }
@@ -73,7 +73,7 @@ async function updateCustomer(linkP, linkedId, id) {
 async function updateMissingValuesInCustomer(data) {
   const [rows] = await pool.query(
     "update customer set phoneNumber =?,email =? where id=?",
-    [data.phone, data.email, data.id]
+    [data.phoneNumber, data.email, data.id]
   );
   return rows;
 }
