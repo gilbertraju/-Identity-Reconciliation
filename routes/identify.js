@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const Joi = require("joi");
+const lodash = require("lodash");
 
 const {
   getAllCustomers,
@@ -10,6 +11,7 @@ const {
   getSecondaryCustomers,
   updateCustomer,
   updateMissingValuesInCustomer,
+  getLinkedPrimaryRecordsAndUpdate,
 } = require("../database");
 
 //==========================GET=============================//
@@ -47,21 +49,12 @@ router.get("/:id", async (req, res) => {
  */
 
 router.post("/", async (req, res) => {
-  let finalResponse = {};
-  let primaryId;
-  let allEmails = [];
-  let allPhones = [];
-  let allSecondaryIDs = [];
+  console.log(`${new Date()}: Request Body:-`, req.body);
 
-  let updateContacts = [];
-
-  let updateId;
-
-  let createContactWithThisRequestQuestionMark = true;
-  let updateContactQuestionMark = false;
   let { error } = ValidationCheck(req.body);
   if (error)
     return res.status(400).send({ ErrorMessage: error.details[0].message });
+
   let contact = {
     phoneNumber: req?.body?.phoneNumber || null,
     email: req?.body?.email || null,
@@ -74,180 +67,160 @@ router.post("/", async (req, res) => {
       .status(400)
       .send({ ErrorMessage: "Either 'email' or 'phoneNumber' is Required." });
 
-  const duplicates = await checkForDuplicates(
+  const allRecordsMatch = await checkForDuplicates(
     contact.phoneNumber,
     contact.email
   );
 
-  console.log("Duplicate List:", duplicates);
+  //Logic Starts
+  let primaryID;
+  let createContact = true;
+  let updatePrimaryToSecondaryIDs = [];
+  let theFullLinkedRecordList = [];
+  let allEmails = [];
+  let allPhones = [];
+  let allSecondaryIDs = [];
 
-  if (duplicates.length >= 1) {
-    console.log("Match Found");
-    let doesLinkedIdExistInDuplicates = true;
+  if (allRecordsMatch.length > 0) {
+    let linkedIDs = Array.from(
+      new Set(
+        allRecordsMatch.map((item) => item.linkedId).filter((id) => id !== null)
+      )
+    );
+    //console.log("Linked IDs:", linkedIDs);
 
-    for (row in duplicates) {
-      if (
-        (duplicates[row].email === contact.email &&
-          duplicates[row].phoneNumber == contact.phoneNumber) ||
-        (!contact.email &&
-          duplicates[row].phoneNumber == contact.phoneNumber) ||
-        (duplicates[row].email === contact.email && !contact.phoneNumber)
-      ) {
-        createContactWithThisRequestQuestionMark = false;
-      }
-
-      if (
-        (!duplicates[row].phoneNumber &&
-          contact.phoneNumber &&
-          duplicates[row].email === contact.email) ||
-        (!duplicates[row].email &&
-          contact.email &&
-          duplicates[row].phoneNumber == contact.phoneNumber)
-      ) {
-        updateContacts.push({
-          phoneNumber: contact.phoneNumber,
-          email: contact.email,
-          id: duplicates[row].id,
-        });
-      }
-
-      if (duplicates[row].email) allEmails.push(duplicates[row].email);
-
-      if (duplicates[row].phoneNumber)
-        allPhones.push(duplicates[row].phoneNumber);
-
-      if (duplicates[row].linkedId) {
-        primaryId = duplicates[row].linkedId;
-        doesLinkedIdExistInDuplicates = true;
-      }
-
-      if (duplicates[row].linkPrecedence == "primary") {
-        primaryId = duplicates[row].id;
-      } else {
-        allSecondaryIDs.push(duplicates[row].id);
+    if (linkedIDs.length > 0) {
+      for (ids in linkedIDs) {
+        theFullLinkedRecordList.push(
+          ...(await getSecondaryCustomers(linkedIDs[ids]))
+        );
       }
     }
 
-    // if (
-    //   allEmails.includes(contact.email) &&
-    //   allPhones.includes(contact.phone) &&
-    //   createContactWithThisRequestQuestionMark
-    // ) {
-    //   console.log("Edge Case Hit");
-    //   createContactWithThisRequestQuestionMark = false;
+    //console.log("All Records 123", allRecordsMatch);
 
-    //   console.log("duplicates", duplicates);
-
-    // }
-
-    if (doesLinkedIdExistInDuplicates) {
-      const secondaryAndPrimaryContactList = await getSecondaryCustomers(
-        primaryId
+    let noDuplicaeteAllList = lodash
+      .uniqBy([...theFullLinkedRecordList, ...allRecordsMatch], (item) =>
+        JSON.stringify(item)
+      )
+      .sort(
+        (item1, item2) =>
+          lodash.get(item1, "createdAt") - lodash.get(item2, "createdAt")
       );
-      console.log("All the Secondary Contacts", secondaryAndPrimaryContactList);
 
-      for (secondaryContact in secondaryAndPrimaryContactList) {
-        if (secondaryAndPrimaryContactList[secondaryContact].email)
-          allEmails.push(
-            secondaryAndPrimaryContactList[secondaryContact].email
-          );
+    //console.log("noDuplicaeteAllList", noDuplicaeteAllList);
 
-        if (secondaryAndPrimaryContactList[secondaryContact].phoneNumber)
-          allPhones.push(
-            secondaryAndPrimaryContactList[secondaryContact].phoneNumber
-          );
-
-        if (
-          secondaryAndPrimaryContactList[secondaryContact].linkPrecedence !=
-          "primary"
-        )
-          allSecondaryIDs.push(
-            secondaryAndPrimaryContactList[secondaryContact].id
-          );
-      }
-    }
-
-    if (createContactWithThisRequestQuestionMark) {
-      contact.linkP = "secondary";
-      contact.linkedId = primaryId;
-
-      let primaryDuplicates = duplicates.filter((d) => {
-        return d.linkPrecedence == "primary";
-      });
-      console.log("primaryDuplicates", primaryDuplicates);
-
-      if (primaryDuplicates.length > 1 && primaryDuplicates[0].id) {
-        console.log("Edge Case Hit");
-        createContactWithThisRequestQuestionMark = false;
-        updateId = primaryDuplicates[0].id;
-        updateContactQuestionMark = true;
-      }
-    }
-  }
-
-  //update
-  if (updateContactQuestionMark) {
-    console.log("Updating Row with ID", updateId);
-    allSecondaryIDs.push(updateId);
-    const upadtedContactDetails = await updateCustomer(
-      "secondary",
-      primaryId,
-      updateId
+    let primaryDuplicates = Array.from(
+      new Set(noDuplicaeteAllList.filter((d) => d.linkPrecedence == "primary"))
     );
 
-    console.log("Updated Contact", upadtedContactDetails);
-  }
+    console.log(`${new Date()}: multiple primary check :-`, primaryDuplicates);
 
-  if (updateContacts.length > 0) {
-    console.log("Updating Rows", updateContacts);
+    if (primaryDuplicates.length > 0) {
+      primaryID = primaryDuplicates[0].id;
+      if (primaryDuplicates.length > 1) {
+        for (let count = 1; count < primaryDuplicates.length; count++) {
+          updatePrimaryToSecondaryIDs.push(primaryDuplicates[count].id);
+        }
 
-    let updatePromise = [];
-    for (rowThatNeedsUpdate in updateContacts) {
-      updatePromise.push(
-        updateMissingValuesInCustomer(updateContacts[rowThatNeedsUpdate])
-      );
+        //get all the secondries across all logics and update their linked id to the primary id and linked precidence to secondary. and get the list of all the records.
+
+        theFullLinkedRecordList.push(
+          ...(await getLinkedPrimaryRecordsAndUpdate(
+            updatePrimaryToSecondaryIDs,
+            primaryID
+          ))
+        );
+      }
+
+      //console.log("updatePrimaryToSecondaryIDs", updatePrimaryToSecondaryIDs);
+
+      if (updatePrimaryToSecondaryIDs.length == 0) {
+        theFullLinkedRecordList.push(
+          ...(await getSecondaryCustomers(primaryID))
+        );
+      }
     }
 
-    const upadteMissingValuesResponse = await Promise.allSettled(updatePromise);
-    console.log("upadteMissingValuesResponse", upadteMissingValuesResponse);
+    //iterate through the entire list and apply the checking logics.
+
+    console.log(`${new Date()}: Final Full List:-`, theFullLinkedRecordList);
+
+    for (row in theFullLinkedRecordList) {
+      if (
+        (theFullLinkedRecordList[row].email === contact.email &&
+          theFullLinkedRecordList[row].phoneNumber == contact.phoneNumber) ||
+        (!contact.email &&
+          theFullLinkedRecordList[row].phoneNumber == contact.phoneNumber) ||
+        (theFullLinkedRecordList[row].email === contact.email &&
+          !contact.phoneNumber)
+      ) {
+        createContact = false;
+      }
+
+      //email Push
+      if (
+        theFullLinkedRecordList[row].email &&
+        !allEmails.includes(theFullLinkedRecordList[row].email)
+      ) {
+        allEmails.push(theFullLinkedRecordList[row].email);
+      }
+
+      if (
+        theFullLinkedRecordList[row].phoneNumber &&
+        !allPhones.includes(theFullLinkedRecordList[row].phoneNumber)
+      )
+        //phone Push
+        allPhones.push(theFullLinkedRecordList[row].phoneNumber);
+      //secondary ID Push
+      if (
+        theFullLinkedRecordList[row].linkPrecedence == "primary" &&
+        !primaryID
+      ) {
+        primaryID = theFullLinkedRecordList[row].id;
+      } else if (
+        theFullLinkedRecordList[row].linkPrecedence != "primary" &&
+        !allSecondaryIDs.includes(theFullLinkedRecordList[row].id)
+      ) {
+        allSecondaryIDs.push(theFullLinkedRecordList[row].id);
+      }
+    }
+
+    if (createContact) {
+      contact.linkP = "secondary";
+      contact.linkedId = primaryID;
+    }
   }
 
-  //create
-  if (
-    !allEmails.includes(contact.email) &&
-    !allPhones.includes(contact.phoneNumber) &&
-    createContactWithThisRequestQuestionMark
-  ) {
-    console.log("Creating New Row", contact);
-
+  if (createContact) {
+    console.log(`${new Date()}: creating new record:-`, contact);
     const createdContactDetails = await createCustomer(contact);
     //mappings
-    if (!primaryId) {
-      primaryId = createdContactDetails.id;
+    if (!primaryID) {
+      primaryID = createdContactDetails.id;
     } else {
       allSecondaryIDs.push(createdContactDetails.id);
     }
-    if (createdContactDetails.email)
+    if (
+      createdContactDetails.email &&
+      !allEmails.includes(createdContactDetails.email)
+    )
       allEmails.push(createdContactDetails.email);
-    if (createdContactDetails.phoneNumber)
+    if (
+      createdContactDetails.phoneNumber &&
+      !allPhones.includes(createdContactDetails.phoneNumber)
+    )
       allPhones.push(createdContactDetails.phoneNumber);
   }
 
-  //remove duplicates
-  allEmails = removeDuplicates(allEmails);
-  allPhones = removeDuplicates(allPhones);
-  allSecondaryIDs = removeDuplicates(allSecondaryIDs);
-
-  //finla Response Body Creation
-  finalResponse = {
+  let finalResponse = {
     contact: {
-      primaryContatctId: primaryId,
+      primaryContatctId: primaryID,
       emails: allEmails,
       phoneNumbers: allPhones,
       secondaryContactIds: allSecondaryIDs,
     },
   };
-  console.log(finalResponse);
 
   res.status(200).send(finalResponse);
 });
