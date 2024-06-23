@@ -45,7 +45,7 @@ _*You can also use the GET method with the '/identify' and '/identify/:id' endpo
  ```
 git clone https://github.com/gilbertraju/-Identity-Reconciliation.git
 ``` 
-2. Use:
+2. Install all the dependencies:
 ```
 npm install
 ```
@@ -72,4 +72,9 @@ linkPrecedence VARCHAR(100),
 createdAt TIMESTAMP NOT NULL default now()
 );
 
+```
+
+6. Run the project.
+```
+npm start
 ```
