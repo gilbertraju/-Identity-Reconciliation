@@ -2,8 +2,10 @@
 
 
 # Overview
-This API would create a unified view of the customers. <br />
-It would link separate orders with different contact details to the same individual.
+
+This project implements identity reconciliation for Bitespeed, linking customer profiles.
+Leverages email or phone number for matching Contact entries in a relational database.
+Establishes a primary identity for each customer by designating the oldest Contact record.
 <br />
 <br />
 _(Made as a task for Bitespeed Software Engineer(Backend) Role)_
